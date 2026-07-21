@@ -10,6 +10,9 @@ set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 check_script="$script_dir/check_site.sh"
 
+# Keep test runs out of the real uptime history.
+export MONITOR_LOG_FILE="$script_dir/../logs/test_scenarios.log"
+
 # name|url|threshold_seconds|expected
 scenarios=(
     "2xx OK|https://example.com|2|UP"
