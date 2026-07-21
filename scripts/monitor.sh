@@ -9,6 +9,13 @@
 #   <url> [max_response_seconds]
 # Blank lines and lines starting with # are ignored.
 #
+# Consecutive-failure tracking: a single failed check is a blip, not an
+# outage. Each URL's consecutive DOWN count is persisted between runs in
+# logs/state/, so cron invocations (separate processes) accumulate it over
+# time. A site is only flagged ALERT once it has failed
+# MONITOR_FAILURE_THRESHOLD times in a row (default 3), and flagged
+# RECOVERED the first time it succeeds again after being down.
+#
 # Exit codes:
 #   0 - all sites UP
 #   1 - at least one site DOWN
@@ -19,14 +26,24 @@ set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 check_script="$script_dir/check_site.sh"
 config_file="${1:-$script_dir/../config/urls.conf}"
+state_dir="${MONITOR_STATE_DIR:-$script_dir/../logs/state}"
+failure_threshold="${MONITOR_FAILURE_THRESHOLD:-3}"
 
 if [[ ! -f "$config_file" ]]; then
     echo "Config file not found: $config_file" >&2
     exit 1
 fi
 
-printf "%-40s %-9s %s\n" "URL" "RESULT" "DETAIL"
-printf "%s\n" "--------------------------------------------------------------------------"
+mkdir -p "$state_dir"
+
+state_file_for() {
+    local sanitized
+    sanitized="$(echo "$1" | tr -c '[:alnum:]' '_')"
+    echo "$state_dir/$sanitized.count"
+}
+
+printf "%-40s %-9s %-8s %s\n" "URL" "RESULT" "STREAK" "DETAIL"
+printf "%s\n" "--------------------------------------------------------------------------------"
 
 exit_code=0
 
@@ -40,19 +57,35 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     detail=$("$check_script" "$url" "$threshold" 2>&1)
     check_exit=$?
 
-    case $check_exit in
-        0) result="UP" ;;
-        2) result="SLOW" ;;
-        *) result="DOWN" ;;
-    esac
+    state_file="$(state_file_for "$url")"
+    prev_count=0
+    [[ -f "$state_file" ]] && prev_count="$(cat "$state_file")"
+    prev_count="${prev_count:-0}"
 
     if [[ $check_exit -eq 1 ]]; then
+        result="DOWN"
+        new_count=$((prev_count + 1))
+        echo "$new_count" > "$state_file"
+        if [[ $new_count -ge $failure_threshold ]]; then
+            streak="ALERT"
+        else
+            streak="$new_count/$failure_threshold"
+        fi
         exit_code=1
-    elif [[ $check_exit -eq 2 && $exit_code -eq 0 ]]; then
-        exit_code=2
+    else
+        result=$([[ $check_exit -eq 2 ]] && echo "SLOW" || echo "UP")
+        if [[ $prev_count -ge $failure_threshold ]]; then
+            streak="RECOVERED"
+        else
+            streak="-"
+        fi
+        echo "0" > "$state_file"
+        if [[ $check_exit -eq 2 && $exit_code -eq 0 ]]; then
+            exit_code=2
+        fi
     fi
 
-    printf "%-40s %-9s %s\n" "$url" "$result" "$detail"
+    printf "%-40s %-9s %-8s %s\n" "$url" "$result" "$streak" "$detail"
 done < "$config_file"
 
 exit "$exit_code"
