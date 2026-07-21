@@ -3,11 +3,12 @@
 #
 # Usage: ./check_site.sh <url>
 
-set -euo pipefail
+set -uo pipefail
 
 url="${1:?Usage: $0 <url>}"
 
-status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" || echo "000")
+status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" 2>/dev/null)
+status_code="${status_code:-000}"
 
 if [[ "$status_code" == "000" ]]; then
     echo "DOWN  $url -> connection failed"
