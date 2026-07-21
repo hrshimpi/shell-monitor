@@ -10,28 +10,29 @@ set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 check_script="$script_dir/check_site.sh"
 
-# name|url|expected
+# name|url|threshold_seconds|expected
 scenarios=(
-    "2xx OK|https://example.com|UP"
-    "404 Not Found|https://example.com/does-not-exist|DOWN"
-    "500 Server Error|https://httpstat.us/500|DOWN"
-    "503 Unavailable|https://httpstat.us/503|DOWN"
-    "Connection refused|http://localhost:1|DOWN"
-    "Unresolvable host|http://this-host-does-not-exist.invalid|DOWN"
+    "2xx OK|https://example.com|2|UP"
+    "404 Not Found|https://example.com/does-not-exist|2|DOWN"
+    "500 Server Error|https://httpstat.us/500|2|DOWN"
+    "503 Unavailable|https://httpstat.us/503|2|DOWN"
+    "Connection refused|http://localhost:1|2|DOWN"
+    "Unresolvable host|http://this-host-does-not-exist.invalid|2|DOWN"
+    "Slow response (forced)|https://example.com|0.001|SLOW"
 )
 
-printf "%-22s %-9s %-9s %s\n" "SCENARIO" "EXPECTED" "RESULT" "DETAIL"
-printf "%s\n" "--------------------------------------------------------------------"
+printf "%-24s %-9s %-9s %s\n" "SCENARIO" "EXPECTED" "RESULT" "DETAIL"
+printf "%s\n" "--------------------------------------------------------------------------"
 
 for entry in "${scenarios[@]}"; do
-    IFS='|' read -r name url expected <<< "$entry"
+    IFS='|' read -r name url threshold expected <<< "$entry"
 
-    detail=$("$check_script" "$url" 2>&1)
-    if [[ $? -eq 0 ]]; then
-        result="UP"
-    else
-        result="DOWN"
-    fi
+    detail=$("$check_script" "$url" "$threshold" 2>&1)
+    case $? in
+        0) result="UP" ;;
+        2) result="SLOW" ;;
+        *) result="DOWN" ;;
+    esac
 
     if [[ "$result" == "$expected" ]]; then
         mark="OK"
@@ -39,5 +40,5 @@ for entry in "${scenarios[@]}"; do
         mark="MISMATCH"
     fi
 
-    printf "%-22s %-9s %-9s %s [%s]\n" "$name" "$expected" "$result" "$detail" "$mark"
+    printf "%-24s %-9s %-9s %s [%s]\n" "$name" "$expected" "$result" "$detail" "$mark"
 done
