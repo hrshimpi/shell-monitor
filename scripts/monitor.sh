@@ -53,6 +53,7 @@ printf "%s\n" "-----------------------------------------------------------------
 exit_code=0
 
 while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
     [[ "$line" =~ ^[[:space:]]*$ ]] && continue
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
