@@ -16,6 +16,10 @@
 # MONITOR_FAILURE_THRESHOLD times in a row (default 3), and flagged
 # RECOVERED the first time it succeeds again after being down.
 #
+# alert.sh is invoked exactly once per transition (the tick that crosses
+# the threshold, and the tick that recovers) so a prolonged outage doesn't
+# spam every configured alert channel on every single tick.
+#
 # Exit codes:
 #   0 - all sites UP
 #   1 - at least one site DOWN
@@ -25,6 +29,7 @@ set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 check_script="$script_dir/check_site.sh"
+alert_script="$script_dir/alert.sh"
 config_file="${1:-$script_dir/../config/urls.conf}"
 state_dir="${MONITOR_STATE_DIR:-$script_dir/../logs/state}"
 failure_threshold="${MONITOR_FAILURE_THRESHOLD:-3}"
@@ -68,6 +73,9 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         echo "$new_count" > "$state_file"
         if [[ $new_count -ge $failure_threshold ]]; then
             streak="ALERT"
+            if [[ $new_count -eq $failure_threshold ]]; then
+                "$alert_script" ALERT "$url" "$detail" >/dev/null
+            fi
         else
             streak="$new_count/$failure_threshold"
         fi
@@ -76,6 +84,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         result=$([[ $check_exit -eq 2 ]] && echo "SLOW" || echo "UP")
         if [[ $prev_count -ge $failure_threshold ]]; then
             streak="RECOVERED"
+            "$alert_script" RECOVERED "$url" "$detail" >/dev/null
         else
             streak="-"
         fi
